@@ -8,13 +8,13 @@ import type { ECharts } from 'echarts';
 
 export type { SlideHandle } from '../renderer/SlideRenderer';
 
-export type FitMode = 'contain' | 'none';
+export type FitMode = 'contain' | 'cover' | 'none';
 
 export type PreviewInput = ArrayBuffer | Uint8Array | Blob;
 
 export interface ViewerOptions {
   width?: number;
-  /** Scaling mode. contain = fit container width, none = use intrinsic slide size. */
+  /** Scaling mode. contain = fit container width, cover = fill container and crop overflow, none = use intrinsic slide size. */
   fitMode?: FitMode;
   /** Initial zoom percentage. Effective scale = fitScale * zoomPercent/100. */
   zoomPercent?: number;
@@ -73,6 +73,7 @@ export class PptxViewer extends EventTarget {
   private windowResizeHandler?: () => void;
   private resizeRafId: number | null = null;
   private lastMeasuredContainerWidth = 0;
+  private lastMeasuredContainerHeight = 0;
   private mountedSlides = new Set<number>();
   private slideHandles = new Map<number, SlideHandle>();
   private activeRenderMode: 'list' | 'slide' | null = null;
@@ -313,6 +314,7 @@ export class PptxViewer extends EventTarget {
     this._fitMode = mode;
     if (mode === 'none') {
       this.lastMeasuredContainerWidth = 0;
+      this.lastMeasuredContainerHeight = 0;
     }
     await this.queueRender();
   }
@@ -484,10 +486,23 @@ export class PptxViewer extends EventTarget {
       return { scale: 1, displayWidth: 0, displayHeight: 0 };
     }
     const fitWidth = this.viewerOptions.width ?? (this.container.clientWidth || 960);
-    if (this._fitMode === 'contain' && this.viewerOptions.width === undefined) {
+    const fallbackHeight = Math.round(
+      fitWidth * (this.presentation.height / this.presentation.width || 0.75),
+    );
+    const fitHeight = this.container.clientHeight || fallbackHeight;
+    if (
+      (this._fitMode === 'contain' || this._fitMode === 'cover') &&
+      this.viewerOptions.width === undefined
+    ) {
       this.lastMeasuredContainerWidth = fitWidth;
+      this.lastMeasuredContainerHeight = fitHeight;
     }
-    const fitScale = this._fitMode === 'contain' ? fitWidth / this.presentation.width : 1;
+    let fitScale = 1;
+    if (this._fitMode === 'contain') {
+      fitScale = fitWidth / this.presentation.width;
+    } else if (this._fitMode === 'cover') {
+      fitScale = Math.max(fitWidth / this.presentation.width, fitHeight / this.presentation.height);
+    }
     const scale = fitScale * this.zoomFactor;
     return {
       scale,
@@ -543,12 +558,19 @@ export class PptxViewer extends EventTarget {
 
   private handleContainerResize(): void {
     if (!this.presentation) return;
-    if (this._fitMode !== 'contain') return;
+    if (this._fitMode === 'none') return;
     if (this.viewerOptions.width !== undefined) return;
 
     const nextWidth = this.container.clientWidth || 0;
-    if (!nextWidth || nextWidth === this.lastMeasuredContainerWidth) return;
+    const nextHeight = this.container.clientHeight || 0;
+    if (
+      (!nextWidth && !nextHeight) ||
+      (nextWidth === this.lastMeasuredContainerWidth &&
+        nextHeight === this.lastMeasuredContainerHeight)
+    )
+      return;
     this.lastMeasuredContainerWidth = nextWidth;
+    this.lastMeasuredContainerHeight = nextHeight;
 
     if (this.resizeRafId !== null) {
       cancelAnimationFrame(this.resizeRafId);

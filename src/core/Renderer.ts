@@ -10,7 +10,7 @@ export type { SlideHandle } from '../renderer/SlideRenderer';
 export interface RendererOptions {
   width?: number;
   mode?: 'list' | 'slide';
-  /** Scaling mode. contain = fit container width, none = use intrinsic slide size. */
+  /** Scaling mode. contain = fit container width, cover = fill container and crop overflow, none = use intrinsic slide size. */
   fitMode?: FitMode;
   /** Initial zoom percentage. Effective scale = fitScale * zoomPercent/100. */
   zoomPercent?: number;
